@@ -5,6 +5,9 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command as TokioCommand;
 use tokio::sync::watch;
 
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 pub struct RunningBabelDoc {
     pid: Option<u32>,
     cancel_tx: watch::Sender<bool>,
@@ -69,10 +72,14 @@ pub fn spawn_babeldoc(opts: BabelDocCommand) -> Result<SpawnedBabelDoc, String> 
     let built = build_command(&opts)?;
 
     let mut command = TokioCommand::new(&built.program);
-    command
-        .args(&built.args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    command.args(&built.args);
+
+    #[cfg(windows)]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let mut child = command
         .spawn()

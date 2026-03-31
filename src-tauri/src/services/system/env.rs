@@ -2,6 +2,12 @@ use serde::Serialize;
 use std::env;
 use std::process::Command;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnvCheck {
@@ -11,8 +17,20 @@ pub struct EnvCheck {
     pub message: Option<String>,
 }
 
+fn hidden_command(program: &str) -> Command {
+    let mut command = Command::new(program);
+
+    #[cfg(windows)]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    command
+}
+
 fn run<const N: usize>(program: &str, args: [&str; N]) -> Option<String> {
-    let out = Command::new(program).args(args).output().ok()?;
+    let mut command = hidden_command(program);
+    let out = command.args(args).output().ok()?;
     if !out.status.success() {
         return None;
     }
@@ -31,7 +49,8 @@ fn run<const N: usize>(program: &str, args: [&str; N]) -> Option<String> {
 }
 
 fn run_ok<const N: usize>(program: &str, args: [&str; N]) -> bool {
-    Command::new(program)
+    let mut command = hidden_command(program);
+    command
         .args(args)
         .status()
         .map(|s| s.success())
