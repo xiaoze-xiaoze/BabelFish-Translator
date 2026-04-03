@@ -1,4 +1,6 @@
 :root {
+  --font-ui: "Noto Sans SC", "Source Han Sans SC", "PingFang SC",
+    "Microsoft YaHei UI", "Segoe UI", sans-serif;
   --bg-center: #f8fcff;
   --bg-mid: #e9f3ff;
   --bg-edge: #cfe3fb;
@@ -21,8 +23,7 @@ body,
 
 body {
   min-height: 100vh;
-  font-family: "SF Pro Text", "SF Pro Display", "PingFang SC", "Segoe UI",
-    sans-serif;
+  font-family: var(--font-ui);
   background:
     radial-gradient(
       circle at 50% 50%,
@@ -30,6 +31,13 @@ body {
       var(--bg-mid) 45%,
       var(--bg-edge) 100%
     );
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
 }
 
 .app-shell {
@@ -393,8 +401,7 @@ body {
   grid-column: 2 / 4;
   justify-self: center;
   color: rgba(40, 93, 153, 0.98);
-  font-family: "Avenir Next", "SF Pro Display", "Segoe UI", "PingFang SC",
-    sans-serif;
+  font-family: var(--font-ui);
   font-size: 1.52rem;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -443,6 +450,44 @@ body {
   transform: none;
 }
 
+.env-banner-title {
+  margin: 0;
+  color: rgba(30, 71, 116, 0.96);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.env-banner-text {
+  margin: 0.3rem 0 0;
+  color: rgba(48, 88, 135, 0.88);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.env-float-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  padding: 2rem;
+  background: rgba(20, 48, 80, 0.14);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.env-float-card {
+  width: min(420px, calc(100% - 2rem));
+  border-radius: 1rem;
+  border: 1px solid rgba(124, 171, 222, 0.55);
+  background: rgba(240, 248, 255, 0.96);
+  box-shadow:
+    0 28px 60px -28px rgba(20, 56, 98, 0.62),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  padding: 0.95rem 1.05rem;
+}
+
 .env-overlay {
   position: absolute;
   inset: 0;
@@ -474,6 +519,11 @@ body {
   line-height: 1.45;
 }
 
+.env-copy {
+  display: grid;
+  gap: 0.45rem;
+}
+
 .env-compact {
   display: flex;
   align-items: center;
@@ -481,10 +531,23 @@ body {
   gap: 0.7rem;
 }
 
+.env-progress-list {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
 .env-status-text {
-  margin: 0.78rem 0 0;
+  margin: 0;
   color: rgba(35, 79, 127, 0.95);
   font-size: 0.85rem;
+}
+
+.env-error-text {
+  margin: 0;
+  color: rgba(175, 63, 54, 0.96);
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .settings-overlay {
@@ -901,13 +964,14 @@ body {
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
     0 6px 12px -14px rgba(34, 88, 148, 0.28);
   color: #1f4f86;
-  padding: 0.58rem 0.74rem;
-  min-height: 2.2rem;
+  padding: 0.72rem 0.82rem;
+  min-height: 2.65rem;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.84rem;
+  font-size: 0.88rem;
+  font-weight: 600;
   cursor: pointer;
   transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
 }
@@ -931,7 +995,7 @@ body {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  padding: 0 1.35rem;
+  padding: 0 1.5rem;
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
@@ -939,11 +1003,11 @@ body {
 }
 
 .runtime-model-trigger svg {
-  width: 0.9rem;
-  height: 0.9rem;
+  width: 0.96rem;
+  height: 0.96rem;
   color: rgba(46, 97, 154, 0.78);
   position: absolute;
-  right: 0.74rem;
+  right: 0.82rem;
   top: 50%;
   transform: translateY(-50%);
   pointer-events: none;
@@ -979,9 +1043,9 @@ body {
   border-radius: 0.6rem;
   background: transparent;
   color: rgba(36, 84, 136, 0.92);
-  padding: 0.5rem 0.58rem;
+  padding: 0.62rem 0.68rem;
   text-align: center;
-  font-size: 0.82rem;
+  font-size: 0.86rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -1246,6 +1310,15 @@ body {
 
   .settings-footer {
     display: block;
+  }
+
+  .env-float-layer {
+    padding: 1rem;
+  }
+
+  .env-float-card {
+    width: min(100%, 360px);
+    padding: 0.8rem 0.9rem;
   }
 
   .env-overlay {

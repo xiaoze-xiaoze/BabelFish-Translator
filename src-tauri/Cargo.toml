@@ -1,6 +1,6 @@
 [package]
 name = "babelfish"
-version = "0.1.0"
+version = "0.1.1"
 description = "BabelFish desktop app"
 authors = ["BabelFish Team"]
 edition = "2021"

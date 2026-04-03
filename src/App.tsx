@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { ChevronDown, Plus, Save, Settings, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -31,6 +32,12 @@ type EnvCheckResult = {
   babeldocVersion?: string | null;
   uvVersion?: string | null;
   message?: string | null;
+};
+
+type EnvProgressEvent = {
+  stage: string;
+  message: string;
+  detail?: string | null;
 };
 
 type TaskStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled";
@@ -84,6 +91,9 @@ type HistoryItem = {
 
 const QPS_MIN = 1;
 const QPS_MAX = 12;
+const ENV_PROGRESS_EVENT = "env://progress";
+
+let sharedEnvCheckPromise: Promise<EnvCheckResult> | null = null;
 
 const DEFAULT_SETTINGS: AppSettings = {
   schemaVersion: 3,
@@ -206,6 +216,45 @@ function validateApiDraft(draft: AppSettingsDraft): string | null {
   return null;
 }
 
+function formatEnvError(error: unknown): string {
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
+function resolveEnvMessage(result: EnvCheckResult): string {
+  if (result.babelfishVersion) {
+    return "环境准备完成。";
+  }
+
+  if (result.uvVersion) {
+    return "已检测到 uv，还缺少 BabelDOC，可直接继续安装。";
+  }
+
+  return "未检测到 uv 和 BabelDOC，请先安装环境。";
+}
+
+function runSharedEnvCheck(): Promise<EnvCheckResult> {
+  if (!sharedEnvCheckPromise) {
+    sharedEnvCheckPromise = invoke<EnvCheckResult>("env_check").finally(() => {
+      sharedEnvCheckPromise = null;
+    });
+  }
+
+  return sharedEnvCheckPromise;
+}
+
 function toPayload(draft: AppSettingsDraft): AppSettings {
   const qps = Number.parseInt(draft.qps, 10);
 
@@ -293,6 +342,9 @@ function App() {
   const [envState, setEnvState] = useState<EnvState>(
     tauriAvailable ? "checking" : "ready",
   );
+  const [envMessage, setEnvMessage] = useState("正在检测环境...");
+  const [envErrorMessage, setEnvErrorMessage] = useState("");
+  const [envProgressItems, setEnvProgressItems] = useState<string[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [runtimeProviderId, setRuntimeProviderId] = useState("");
@@ -386,18 +438,29 @@ function App() {
     setQueueHasBottomFade(flags.bottom);
   };
 
+  const applyEnvCheckResult = (result: EnvCheckResult) => {
+    setEnvState(result.babelfishVersion ? "ready" : "missing");
+    setEnvErrorMessage("");
+    setEnvMessage(resolveEnvMessage(result));
+  };
+
   const checkRuntimeEnv = async () => {
     if (!tauriAvailable) {
       setEnvState("ready");
+      setEnvMessage("当前为浏览器模式，跳过环境检测。");
       return;
     }
 
     setEnvState("checking");
+    setEnvErrorMessage("");
+    setEnvMessage("正在检测环境...");
     try {
-      const result = await invoke<EnvCheckResult>("env_check");
-      setEnvState(result.babelfishVersion ? "ready" : "missing");
+      const result = await runSharedEnvCheck();
+      applyEnvCheckResult(result);
     } catch (error) {
       console.error("environment check failed", error);
+      setEnvErrorMessage(formatEnvError(error));
+      setEnvMessage("环境检测失败，请重试。");
       setEnvState("error");
     }
   };
@@ -408,12 +471,19 @@ function App() {
     }
 
     setEnvState("installing");
+    setEnvErrorMessage("");
+    setEnvMessage("正在安装 uv 和 BabelDOC...");
+    setEnvProgressItems(["开始安装环境..."]);
     try {
-      await invoke("env_install");
-      await checkRuntimeEnv();
+      const result = await invoke<EnvCheckResult>("env_install");
+      applyEnvCheckResult(result);
     } catch (error) {
       console.error("environment install failed", error);
-      setEnvState("missing");
+      const message = formatEnvError(error);
+      setEnvState("error");
+      setEnvErrorMessage(message);
+      setEnvMessage("环境安装失败。");
+      setEnvProgressItems((prev) => [...prev.slice(-4), `安装失败: ${message}`]);
     }
   };
 
@@ -680,6 +750,40 @@ function App() {
       });
     }
   };
+  useEffect(() => {
+    if (!tauriAvailable) {
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void listen<EnvProgressEvent>(ENV_PROGRESS_EVENT, (event) => {
+      const detail = event.payload.detail?.trim();
+      const line = detail
+        ? `${event.payload.message}: ${detail}`
+        : event.payload.message;
+
+      setEnvMessage(event.payload.message);
+      setEnvProgressItems((prev) => [...prev.slice(-4), line]);
+    })
+      .then((cleanup) => {
+        if (disposed) {
+          cleanup();
+          return;
+        }
+        unlisten = cleanup;
+      })
+      .catch((error) => {
+        console.error("env progress listener failed", error);
+      });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [tauriAvailable]);
+
   useEffect(() => {
     void checkRuntimeEnv();
   }, [tauriAvailable]);
@@ -1132,7 +1236,7 @@ function App() {
             </div>
           </section>
         </div>
-        {!isEnvReady ? (
+        {envState === "installing" || envState === "missing" || envState === "error" ? (
           <div
             className="env-overlay"
             role="dialog"
@@ -1140,24 +1244,28 @@ function App() {
             aria-label="Environment check"
           >
             <section className="env-modal">
-              {envState === "checking" ? (
-                <p className="env-status-text">{"\u6b63\u5728\u68c0\u6d4b\u73af\u5883..."}</p>
-              ) : null}
-
               {envState === "installing" ? (
                 <>
-                  <p className="env-line">
-                    {"\u6b63\u5728\u5b89\u88c5 uv \u548c BabelDOC..."}
-                  </p>
+                  <p className="env-line">{envMessage}</p>
                   <p className="env-line">{"\u8bf7\u4fdd\u6301\u5e94\u7528\u5f00\u542f\u3002"}</p>
+                  <div className="env-progress-list" aria-live="polite">
+                    {envProgressItems.map((item, index) => (
+                      <p className="env-status-text" key={`${item}-${index}`}>
+                        {item}
+                      </p>
+                    ))}
+                  </div>
                 </>
               ) : null}
 
               {envState === "missing" || envState === "error" ? (
                 <div className="env-compact">
-                  <p className="env-line">
-                    {"\u8bf7\u5148\u914d\u7f6e uv \u548c babeldoc"}
-                  </p>
+                  <div className="env-copy">
+                    <p className="env-line">{envMessage}</p>
+                    {envErrorMessage !== "" ? (
+                      <p className="env-error-text">{envErrorMessage}</p>
+                    ) : null}
+                  </div>
                   <button
                     className="primary-btn"
                     type="button"
@@ -1166,7 +1274,9 @@ function App() {
                     }}
                     disabled={isEnvBusy}
                   >
-                    {isEnvBusy ? "\u5b89\u88c5\u4e2d..." : "\u5b89\u88c5\u73af\u5883"}
+                    {envState === "error"
+                      ? "\u91cd\u8bd5\u5b89\u88c5"
+                      : "\u5b89\u88c5\u73af\u5883"}
                   </button>
                 </div>
               ) : null}
@@ -1464,6 +1574,14 @@ function App() {
           </aside>
         </div>
       </section>
+      {envState === "checking" ? (
+        <div className="env-float-layer" role="status" aria-live="polite">
+          <section className="env-float-card">
+            <p className="env-banner-title">正在检测环境</p>
+            <p className="env-banner-text">{envMessage}</p>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }

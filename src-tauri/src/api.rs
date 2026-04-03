@@ -16,13 +16,13 @@ pub fn save_settings(app_handle: AppHandle, settings: AppSettings) -> Result<App
 }
 
 #[tauri::command]
-pub fn env_check() -> Result<EnvCheck, String> {
-    crate::services::system::env::env_check()
+pub async fn env_check() -> Result<EnvCheck, String> {
+    crate::services::system::env::env_check().await
 }
 
 #[tauri::command]
-pub fn env_install() -> Result<(), String> {
-    crate::services::system::env::env_install()
+pub async fn env_install(app_handle: AppHandle) -> Result<EnvCheck, String> {
+    crate::services::system::env::env_install(app_handle).await
 }
 
 #[tauri::command]
