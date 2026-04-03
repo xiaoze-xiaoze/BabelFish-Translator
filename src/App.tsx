@@ -1473,11 +1473,6 @@ function App() {
                   <div className="provider-list">
                     {draft.providers.map((provider, index) => (
                       <article className="provider-card" key={`provider-${index}`}>
-                        <div className="provider-card-header">
-                          <div className="provider-card-meta">
-                            <strong>{provider.modelName.trim()}</strong>
-                          </div>
-                        </div>
                         <div className="settings-grid provider-grid">
                           <label className="settings-field">
                             <span>Model Name</span>
