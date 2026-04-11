@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { localDataDir } from "@tauri-apps/api/path";
 import { ChevronDown, Plus, Save, Settings, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -325,11 +326,18 @@ function firstFileName(files: string[]): string {
   return segments.length > 0 ? segments[segments.length - 1] : normalized;
 }
 
-function outputLabel(output?: string | null): string {
+const BABELDOC_DEFAULT_OUTPUT_DIR_NAME = "BabelFish";
+
+function outputLabel(
+  output?: string | null,
+  defaultDir?: string,
+): string {
   const trimmed = output?.trim();
   return trimmed && trimmed !== ""
     ? trimmed
-    : "(\u9ed8\u8ba4\u8f93\u51fa\u76ee\u5f55)";
+    : defaultDir
+      ? `(${defaultDir})`
+      : "(\u9ed8\u8ba4\u8f93\u51fa\u76ee\u5f55)";
 }
 function App() {
   const tauriAvailable = isTauriRuntime();
@@ -347,6 +355,7 @@ function App() {
   const [envProgressItems, setEnvProgressItems] = useState<string[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [defaultOutputDir, setDefaultOutputDir] = useState("");
   const [runtimeProviderId, setRuntimeProviderId] = useState("");
   const [runtimeFiles, setRuntimeFiles] = useState<string[]>([]);
   const [runtimeOutputDir, setRuntimeOutputDir] = useState("");
@@ -789,6 +798,17 @@ function App() {
   }, [tauriAvailable]);
 
   useEffect(() => {
+    if (!tauriAvailable) {
+      return;
+    }
+    void localDataDir().then((dir) => {
+      setDefaultOutputDir(
+        dir.replace(/\\/g, "/") + "/" + BABELDOC_DEFAULT_OUTPUT_DIR_NAME,
+      );
+    });
+  }, [tauriAvailable]);
+
+  useEffect(() => {
     if (!isEnvReady) {
       return;
     }
@@ -944,8 +964,8 @@ function App() {
                       {firstFileName(item.files)}
                     </span>
                     <span className="task-strip-key">{"\u4fdd\u5b58\u5230"}</span>
-                    <span className="task-strip-value" title={outputLabel(item.output)}>
-                      {outputLabel(item.output)}
+                    <span className="task-strip-value" title={outputLabel(item.output, defaultOutputDir)}>
+                      {outputLabel(item.output, defaultOutputDir)}
                     </span>
                   </p>
                   <button
@@ -984,8 +1004,8 @@ function App() {
                       {firstFileName(task.files)}
                     </span>
                     <span className="task-strip-key">{"\u4fdd\u5b58\u5230"}</span>
-                    <span className="task-strip-value" title={outputLabel(task.output)}>
-                      {outputLabel(task.output)}
+                    <span className="task-strip-value" title={outputLabel(task.output, defaultOutputDir)}>
+                      {outputLabel(task.output, defaultOutputDir)}
                     </span>
                   </p>
                   <div className="task-strip-actions">
@@ -1107,7 +1127,7 @@ function App() {
                 </label>
 
                 <label className="settings-field">
-                  <span>{"\u8f93\u51fa\u76ee\u5f55\uff08\u9ed8\u8ba4\u540c\u76ee\u5f55\uff09"}</span>
+                  <span>{"\u8f93\u51fa\u76ee\u5f55"}</span>
                   <div className="runtime-output-row">
                     <button
                       className={`outline-btn runtime-output-picker-btn${
@@ -1116,7 +1136,7 @@ function App() {
                       type="button"
                       title={
                         runtimeOutputDirValue === ""
-                          ? "\u9009\u62e9\u8f93\u51fa\u6587\u4ef6\u5939"
+                          ? defaultOutputDir
                           : runtimeOutputDirValue
                       }
                       onClick={() => {
@@ -1124,7 +1144,7 @@ function App() {
                       }}
                     >
                       {runtimeOutputDirValue === ""
-                        ? "\u9009\u62e9\u8f93\u51fa\u6587\u4ef6\u5939"
+                        ? defaultOutputDir || "\u9009\u62e9\u8f93\u51fa\u6587\u4ef6\u5939"
                         : runtimeOutputDirValue}
                     </button>
                     <button
