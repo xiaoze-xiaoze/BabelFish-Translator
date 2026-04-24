@@ -77,7 +77,6 @@ pub enum OutputMode {
 pub struct BuiltBabelDocCommand {
     pub program: String,
     pub args: Vec<String>,
-    pub display_command: String,
 }
 
 impl WatermarkOutputMode {
@@ -98,20 +97,6 @@ fn push_opt(args: &mut Vec<String>, flag: &str, val: &Option<String>) {
             args.push(t.to_string());
         }
     }
-}
-
-fn trm_quote(s: &str) -> String {
-    if s.is_empty() {
-        return "''".to_string();
-    }
-
-    if s.chars()
-        .all(|c| c.is_ascii_alphanumeric() || "-_./:=,".contains(c))
-    {
-        return s.to_string();
-    }
-
-    format!("'{}'", s.replace('\'', "''"))
 }
 
 fn has_v1_path_segment(url: &str) -> bool {
@@ -192,16 +177,6 @@ pub fn build_command(opts: &BabelDocCommand) -> Result<BuiltBabelDocCommand, Str
     }
 
     let program = "babeldoc".to_string();
-    let mut display_parts = vec![program.clone()];
-    display_parts.extend(args.clone());
 
-    Ok(BuiltBabelDocCommand {
-        program,
-        args,
-        display_command: display_parts
-            .iter()
-            .map(|s| trm_quote(s))
-            .collect::<Vec<_>>()
-            .join(" "),
-    })
+    Ok(BuiltBabelDocCommand { program, args })
 }

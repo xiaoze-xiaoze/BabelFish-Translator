@@ -207,12 +207,9 @@ fn update_task_state(task_id: &str, task: &TaskItem) -> Result<(), String> {
                 output = ?3,
                 result = ?4,
                 error = ?5
-            WHERE id = (
-                SELECT id FROM translation_history
-                WHERE task_id = ?6
-                ORDER BY id DESC
-                LIMIT 1
-            )
+            WHERE task_id = ?6
+            ORDER BY id DESC
+            LIMIT 1
             "#,
             (
                 task_status_to_str(&task.status),

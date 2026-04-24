@@ -2,52 +2,26 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { localDataDir } from "@tauri-apps/api/path";
-import { ChevronDown, Plus, Save, Settings, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-
-type ProviderSettings = {
-  modelName: string;
-  model: string;
-  baseUrl: string;
-  apiKey: string;
-};
-
-type AppSettings = {
-  schemaVersion: number;
-  providers: ProviderSettings[];
-  direction: Direction;
-  qps: number;
-  outputDir: string;
-  watermarkOutputMode: WatermarkOutputMode;
-  outputMode: OutputMode;
-};
-
-type AppSettingsDraft = Omit<AppSettings, "qps"> & {
-  qps: string;
-};
-
-type EnvState = "checking" | "ready" | "missing" | "installing" | "error";
-
-type EnvCheckResult = {
-  babelfishVersion: boolean;
-  babeldocVersion?: string | null;
-  uvVersion?: string | null;
-  message?: string | null;
-};
+import { Plus, Save, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import ConfigPanel from "./components/ConfigPanel";
+import HistoryPanel from "./components/HistoryPanel";
+import QueuePanel from "./components/QueuePanel";
+import {
+  type AppSettings, type AppSettingsDraft, type EnvCheckResult,
+  type EnvState, type TaskStatus, type Direction,
+  type WatermarkOutputMode, type OutputMode, type RuntimeProvider,
+  BLANK_PROVIDER, DEFAULT_SETTINGS, QPS_MIN, QPS_MAX,
+  isTauriRuntime, cloneProviders, cloneDraft,
+  normalizeSettings, toDraft, toPayload, normalizeQps,
+  validateTranslateDraft, validateApiDraft,
+  formatEnvError, resolveEnvMessage,
+} from "./utils";
 
 type EnvProgressEvent = {
   stage: string;
   message: string;
   detail?: string | null;
-};
-
-type TaskStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled";
-type Direction = "zhToEn" | "enToZh";
-type WatermarkOutputMode = "watermarked" | "no_watermark" | "both";
-type OutputMode = "dualAndMono" | "dualOnly" | "monoOnly";
-
-type RuntimeProvider = ProviderSettings & {
-  id: string;
 };
 
 type BabelDocCommandPayload = {
@@ -90,161 +64,9 @@ type HistoryItem = {
 };
 
 
-const QPS_MIN = 1;
-const QPS_MAX = 12;
 const ENV_PROGRESS_EVENT = "env://progress";
 
 let sharedEnvCheckPromise: Promise<EnvCheckResult> | null = null;
-
-const DEFAULT_SETTINGS: AppSettings = {
-  schemaVersion: 3,
-  providers: [],
-  direction: "zhToEn",
-  qps: 4,
-  outputDir: "",
-  watermarkOutputMode: "watermarked",
-  outputMode: "dualOnly",
-};
-
-const BLANK_PROVIDER: ProviderSettings = {
-  modelName: "",
-  model: "",
-  baseUrl: "",
-  apiKey: "",
-};
-
-function isTauriRuntime(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  return Boolean(
-    (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__,
-  );
-}
-
-function cloneProviders(providers: ProviderSettings[]): ProviderSettings[] {
-  return providers.map((provider) => ({ ...provider }));
-}
-
-function cloneDraft(draft: AppSettingsDraft): AppSettingsDraft {
-  return {
-    ...draft,
-    providers: cloneProviders(draft.providers),
-  };
-}
-
-function normalizeSettings(raw: Partial<AppSettings> | undefined): AppSettings {
-  const merged: AppSettings = {
-    ...DEFAULT_SETTINGS,
-    ...raw,
-    providers: Array.isArray(raw?.providers)
-      ? raw.providers.map((provider) => ({
-          modelName: provider?.modelName ?? "",
-          model: provider?.model ?? "",
-          baseUrl: provider?.baseUrl ?? "",
-          apiKey: provider?.apiKey ?? "",
-        }))
-      : [],
-  };
-
-  if (!Number.isFinite(merged.qps) || merged.qps < QPS_MIN) {
-    merged.qps = QPS_MIN;
-  }
-  if (merged.qps > QPS_MAX) {
-    merged.qps = QPS_MAX;
-  }
-  if (merged.direction !== "zhToEn" && merged.direction !== "enToZh") {
-    merged.direction = "zhToEn";
-  }
-  if (
-    merged.watermarkOutputMode !== "watermarked" &&
-    merged.watermarkOutputMode !== "no_watermark" &&
-    merged.watermarkOutputMode !== "both"
-  ) {
-    merged.watermarkOutputMode = "watermarked";
-  }
-  if (
-    merged.outputMode !== "dualAndMono" &&
-    merged.outputMode !== "dualOnly" &&
-    merged.outputMode !== "monoOnly"
-  ) {
-    merged.outputMode = "dualOnly";
-  }
-  if (merged.outputMode === "dualAndMono") {
-    merged.outputMode = "dualOnly";
-  }
-
-  return merged;
-}
-
-function toDraft(settings: AppSettings): AppSettingsDraft {
-  return {
-    ...settings,
-    qps: String(settings.qps),
-    providers: cloneProviders(settings.providers),
-  };
-}
-
-function validateTranslateDraft(draft: AppSettingsDraft): string | null {
-  const parsedQps = Number.parseInt(draft.qps, 10);
-  if (!Number.isFinite(parsedQps) || parsedQps < 1) {
-    return "QPS must be an integer >= 1";
-  }
-
-  return null;
-}
-
-function validateApiDraft(draft: AppSettingsDraft): string | null {
-  for (let i = 0; i < draft.providers.length; i += 1) {
-    const provider = draft.providers[i];
-    const modelName = provider.modelName.trim();
-    const model = provider.model.trim();
-    const baseUrl = provider.baseUrl.trim();
-    const apiKey = provider.apiKey.trim();
-
-    const isEmpty =
-      modelName === "" && model === "" && baseUrl === "" && apiKey === "";
-    if (isEmpty) {
-      continue;
-    }
-
-    if (modelName === "" || model === "" || baseUrl === "") {
-      return `Provider ${i + 1}: modelName / model / baseUrl are required`;
-    }
-  }
-
-  return null;
-}
-
-function formatEnvError(error: unknown): string {
-  if (typeof error === "string") {
-    return error;
-  }
-
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof error.message === "string"
-  ) {
-    return error.message;
-  }
-
-  return String(error);
-}
-
-function resolveEnvMessage(result: EnvCheckResult): string {
-  if (result.babelfishVersion) {
-    return "环境准备完成。";
-  }
-
-  if (result.uvVersion) {
-    return "已检测到 uv，还缺少 BabelDOC，可直接继续安装。";
-  }
-
-  return "未检测到 uv 和 BabelDOC，请先安装环境。";
-}
 
 function runSharedEnvCheck(): Promise<EnvCheckResult> {
   if (!sharedEnvCheckPromise) {
@@ -256,89 +78,8 @@ function runSharedEnvCheck(): Promise<EnvCheckResult> {
   return sharedEnvCheckPromise;
 }
 
-function toPayload(draft: AppSettingsDraft): AppSettings {
-  const qps = Number.parseInt(draft.qps, 10);
-
-  const providers = draft.providers
-    .map((provider) => ({
-      modelName: provider.modelName.trim(),
-      model: provider.model.trim(),
-      baseUrl: provider.baseUrl.trim(),
-      apiKey: provider.apiKey.trim(),
-    }))
-    .filter(
-      (provider) =>
-        provider.modelName !== "" ||
-        provider.model !== "" ||
-        provider.baseUrl !== "" ||
-        provider.apiKey !== "",
-    );
-
-  return {
-    schemaVersion: draft.schemaVersion,
-    providers,
-    direction: draft.direction,
-    qps: Number.isFinite(qps) && qps >= 1 ? qps : 1,
-    outputDir: draft.outputDir.trim(),
-    watermarkOutputMode: draft.watermarkOutputMode,
-    outputMode: draft.outputMode,
-  };
-}
-
-function normalizeQps(value: string): number {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < QPS_MIN) {
-    return QPS_MIN;
-  }
-  if (parsed > QPS_MAX) {
-    return QPS_MAX;
-  }
-  return parsed;
-}
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case "pending":
-      return "\u6392\u961f\u4e2d";
-    case "running":
-      return "\u8fdb\u884c\u4e2d";
-    case "succeeded":
-      return "\u5df2\u5b8c\u6210";
-    case "failed":
-      return "\u5931\u8d25";
-    case "cancelled":
-      return "\u5df2\u53d6\u6d88";
-    default:
-      return "\u672a\u77e5";
-  }
-}
-
-function firstFileName(files: string[]): string {
-  const first = files[0]?.trim();
-  if (!first) {
-    return "(\u672a\u63d0\u4f9b\u6587\u4ef6)";
-  }
-
-  const normalized = first.replace(/\\/g, "/");
-  const segments = normalized
-    .split("/")
-    .filter((segment: string) => segment !== "");
-  return segments.length > 0 ? segments[segments.length - 1] : normalized;
-}
-
 const BABELDOC_DEFAULT_OUTPUT_DIR_NAME = "BabelFish";
 
-function outputLabel(
-  output?: string | null,
-  defaultDir?: string,
-): string {
-  const trimmed = output?.trim();
-  return trimmed && trimmed !== ""
-    ? trimmed
-    : defaultDir
-      ? `(${defaultDir})`
-      : "(\u9ed8\u8ba4\u8f93\u51fa\u76ee\u5f55)";
-}
 function App() {
   const tauriAvailable = isTauriRuntime();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -366,20 +107,12 @@ function App() {
   const [runtimeOutputMode, setRuntimeOutputMode] =
     useState<OutputMode>("dualOnly");
   const [isRuntimeSubmitting, setIsRuntimeSubmitting] = useState(false);
-  const [isRuntimeModelMenuOpen, setIsRuntimeModelMenuOpen] = useState(false);
   const [cancellingTaskIds, setCancellingTaskIds] = useState<Set<string>>(
     () => new Set(),
   );
   const [deletingHistoryIds, setDeletingHistoryIds] = useState<Set<number>>(
     () => new Set(),
   );
-  const [historyHasTopFade, setHistoryHasTopFade] = useState(false);
-  const [historyHasBottomFade, setHistoryHasBottomFade] = useState(false);
-  const [queueHasTopFade, setQueueHasTopFade] = useState(false);
-  const [queueHasBottomFade, setQueueHasBottomFade] = useState(false);
-  const runtimeModelPickerRef = useRef<HTMLDivElement | null>(null);
-  const historyListRef = useRef<HTMLDivElement | null>(null);
-  const queueListRef = useRef<HTMLDivElement | null>(null);
 
   const qpsValue = normalizeQps(draft.qps);
   const isEnvReady = envState === "ready";
@@ -399,11 +132,9 @@ function App() {
         );
       });
   }, [draft.providers]);
-  const selectedRuntimeProvider =
-    runtimeProviders.find((provider) => provider.id === runtimeProviderId) ?? null;
   const runtimeOutputDirValue = runtimeOutputDir.trim();
   const canSubmitRuntimeTask =
-    tauriAvailable && isEnvReady && selectedRuntimeProvider !== null && runtimeFiles.length > 0;
+    tauriAvailable && isEnvReady && runtimeProviderId !== "" && runtimeFiles.length > 0;
   const queueItems = tasks
     .filter((task) => task.status === "pending" || task.status === "running")
     .sort((a, b) => {
@@ -417,35 +148,6 @@ function App() {
       (item) => item.status === "succeeded" || item.status === "failed",
     );
   }, [historyItems]);
-
-  const readFadeFlags = (element: HTMLDivElement | null) => {
-    if (!element) {
-      return { top: false, bottom: false };
-    }
-    if (element.scrollHeight <= element.clientHeight + 1) {
-      return { top: false, bottom: false };
-    }
-
-    const atTop = element.scrollTop <= 1;
-    const atBottom =
-      element.scrollTop + element.clientHeight >= element.scrollHeight - 1;
-    return {
-      top: !atTop,
-      bottom: !atBottom,
-    };
-  };
-
-  const syncHistoryFade = () => {
-    const flags = readFadeFlags(historyListRef.current);
-    setHistoryHasTopFade(flags.top);
-    setHistoryHasBottomFade(flags.bottom);
-  };
-
-  const syncQueueFade = () => {
-    const flags = readFadeFlags(queueListRef.current);
-    setQueueHasTopFade(flags.top);
-    setQueueHasBottomFade(flags.bottom);
-  };
 
   const applyEnvCheckResult = (result: EnvCheckResult) => {
     setEnvState(result.babelfishVersion ? "ready" : "missing");
@@ -673,9 +375,12 @@ function App() {
   };
 
   const submitRuntimeTasks = async () => {
-    if (!canSubmitRuntimeTask || !selectedRuntimeProvider) {
+    if (!canSubmitRuntimeTask) {
       return;
     }
+
+    const provider = runtimeProviders.find((p) => p.id === runtimeProviderId);
+    if (!provider) return;
 
     const pages = runtimePages.trim();
     const output = runtimeOutputDirValue;
@@ -689,9 +394,9 @@ function App() {
       output: output === "" ? null : output,
       pages: pages === "" ? null : pages,
       useOpenai: true,
-      openaiModel: selectedRuntimeProvider.model.trim(),
-      openaiBaseUrl: selectedRuntimeProvider.baseUrl.trim(),
-      openaiApiKey: selectedRuntimeProvider.apiKey.trim(),
+      openaiModel: provider.model.trim(),
+      openaiBaseUrl: provider.baseUrl.trim(),
+      openaiApiKey: provider.apiKey.trim(),
       qps: qpsValue,
       watermarkOutputMode: runtimeWatermarkMode,
       outputMode: runtimeOutputMode,
@@ -759,6 +464,7 @@ function App() {
       });
     }
   };
+
   useEffect(() => {
     if (!tauriAvailable) {
       return;
@@ -828,7 +534,6 @@ function App() {
   useEffect(() => {
     if (runtimeProviders.length === 0) {
       setRuntimeProviderId("");
-      setIsRuntimeModelMenuOpen(false);
       return;
     }
     if (runtimeProviders.some((provider) => provider.id === runtimeProviderId)) {
@@ -836,53 +541,6 @@ function App() {
     }
     setRuntimeProviderId(runtimeProviders[0].id);
   }, [runtimeProviders, runtimeProviderId]);
-
-  useEffect(() => {
-    if (!isRuntimeModelMenuOpen) {
-      return;
-    }
-
-    const handleMouseDown = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (!target) {
-        return;
-      }
-      if (runtimeModelPickerRef.current?.contains(target)) {
-        return;
-      }
-      setIsRuntimeModelMenuOpen(false);
-    };
-
-    document.addEventListener("mousedown", handleMouseDown);
-    return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
-    };
-  }, [isRuntimeModelMenuOpen]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const rafId = window.requestAnimationFrame(() => {
-      syncHistoryFade();
-      syncQueueFade();
-    });
-    return () => {
-      window.cancelAnimationFrame(rafId);
-    };
-  }, [historyVisibleItems, queueItems, isEnvReady]);
-
-  useEffect(() => {
-    const handleResize = () => {
-      syncHistoryFade();
-      syncQueueFade();
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, []);
 
   useEffect(() => {
     if (!isEnvReady) {
@@ -925,337 +583,52 @@ function App() {
 
   return (
     <main className="app-shell">
-      <section className="glass-board" aria-label="workspace">
-        <div className="settings-anchor">
-          <span className="brand-mark" aria-hidden="true">
-            BabelFish
-          </span>
-          <button
-            className="settings-btn"
-            type="button"
-            aria-label="Settings"
-            aria-haspopup="dialog"
-            aria-expanded={isSettingsOpen}
-            aria-controls="settings-modal"
-            disabled={!isEnvReady}
-            onClick={() => setIsSettingsOpen(true)}
-          >
-            <Settings aria-hidden="true" />
-          </button>
+      <section className="workspace" aria-label="workspace">
+        <div className="workspace-body">
+          <div className="left-column">
+            <QueuePanel
+              items={queueItems}
+              defaultOutputDir={defaultOutputDir}
+              cancellingTaskIds={cancellingTaskIds}
+              cancelQueueTask={cancelQueueTask}
+            />
+            <HistoryPanel
+              items={historyVisibleItems}
+              defaultOutputDir={defaultOutputDir}
+              deletingHistoryIds={deletingHistoryIds}
+              deleteHistoryItem={deleteHistoryItem}
+            />
+          </div>
+          <div className="right-column">
+            <ConfigPanel
+              runtimeProviders={runtimeProviders}
+              runtimeProviderId={runtimeProviderId}
+              setRuntimeProviderId={setRuntimeProviderId}
+              runtimeDirection={runtimeDirection}
+              setRuntimeDirection={setRuntimeDirection}
+              runtimePages={runtimePages}
+              setRuntimePages={setRuntimePages}
+              runtimeOutputDirValue={runtimeOutputDirValue}
+              defaultOutputDir={defaultOutputDir}
+              pickRuntimeOutputDir={pickRuntimeOutputDir}
+              setRuntimeOutputDir={setRuntimeOutputDir}
+              runtimeWatermarkMode={runtimeWatermarkMode}
+              setRuntimeWatermarkMode={setRuntimeWatermarkMode}
+              runtimeOutputMode={runtimeOutputMode}
+              setRuntimeOutputMode={setRuntimeOutputMode}
+              runtimeFiles={runtimeFiles}
+              pickRuntimeFiles={pickRuntimeFiles}
+              setRuntimeFiles={setRuntimeFiles}
+              isRuntimeSubmitting={isRuntimeSubmitting}
+              canSubmitRuntimeTask={canSubmitRuntimeTask}
+              submitRuntimeTasks={submitRuntimeTasks}
+              isSettingsOpen={isSettingsOpen}
+              setIsSettingsOpen={setIsSettingsOpen}
+              isEnvReady={isEnvReady}
+            />
+          </div>
         </div>
 
-        <div className="main-panels" aria-label="main workspace">
-          <section className="main-panel main-panel--history" aria-label="history-records">
-            <header className="main-panel-header">
-              <h2>{"\u5386\u53f2\u8bb0\u5f55"}</h2>
-            </header>
-            <div
-              className={`panel-body panel-body--history task-strip-list${
-                historyHasTopFade ? " has-top-fade" : ""
-              }${historyHasBottomFade ? " has-bottom-fade" : ""}`}
-              ref={historyListRef}
-              onScroll={syncHistoryFade}
-            >
-              {historyVisibleItems.map((item) => (
-                <article className="task-strip task-strip--history" key={`history-${item.id}`}>
-                  <p className="task-strip-line">
-                    <span className="task-strip-key">PDF</span>
-                    <span className="task-strip-value" title={item.files[0] ?? ""}>
-                      {firstFileName(item.files)}
-                    </span>
-                    <span className="task-strip-key">{"\u4fdd\u5b58\u5230"}</span>
-                    <span className="task-strip-value" title={outputLabel(item.output, defaultOutputDir)}>
-                      {outputLabel(item.output, defaultOutputDir)}
-                    </span>
-                  </p>
-                  <button
-                    className="danger-text-btn task-cancel-btn task-delete-btn"
-                    type="button"
-                    aria-label="\u5220\u9664\u5386\u53f2\u8bb0\u5f55"
-                    title="\u5220\u9664"
-                    disabled={deletingHistoryIds.has(item.id)}
-                    onClick={() => {
-                      void deleteHistoryItem(item.id);
-                    }}
-                  >
-                    <span className="task-delete-mark" aria-hidden="true" />
-                  </button>
-                </article>
-              ))}
-            </div>
-          </section>
-
-          <section className="main-panel main-panel--queue" aria-label="todo-queue">
-            <header className="main-panel-header">
-              <h2>{"\u5f85\u529e\u961f\u5217"}</h2>
-            </header>
-            <div
-              className={`panel-body panel-body--queue task-strip-list${
-                queueHasTopFade ? " has-top-fade" : ""
-              }${queueHasBottomFade ? " has-bottom-fade" : ""}`}
-              ref={queueListRef}
-              onScroll={syncQueueFade}
-            >
-              {queueItems.map((task) => (
-                <article className="task-strip" key={task.id}>
-                  <p className="task-strip-line">
-                    <span className="task-strip-key">PDF</span>
-                    <span className="task-strip-value" title={task.files[0] ?? ""}>
-                      {firstFileName(task.files)}
-                    </span>
-                    <span className="task-strip-key">{"\u4fdd\u5b58\u5230"}</span>
-                    <span className="task-strip-value" title={outputLabel(task.output, defaultOutputDir)}>
-                      {outputLabel(task.output, defaultOutputDir)}
-                    </span>
-                  </p>
-                  <div className="task-strip-actions">
-                    <span className={`task-chip task-chip--${task.status}`}>
-                      {statusLabel(task.status)}
-                    </span>
-                    <button
-                      className="danger-text-btn task-cancel-btn"
-                      type="button"
-                      disabled={cancellingTaskIds.has(task.id)}
-                      onClick={() => {
-                        void cancelQueueTask(task.id);
-                      }}
-                    >
-                      {cancellingTaskIds.has(task.id)
-                        ? "\u53d6\u6d88\u4e2d..."
-                        : "\u53d6\u6d88"}
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-
-          <section className="main-panel main-panel--config" aria-label="realtime-config">
-            <header className="main-panel-header">
-              <h2>实时配置</h2>
-            </header>
-            <div className="panel-body panel-body--config">
-              <div className="runtime-form">
-                <label className="settings-field">
-                  <span>{"\u7ffb\u8bd1\u6a21\u578b"}</span>
-                  <div
-                    ref={runtimeModelPickerRef}
-                    className={`runtime-model-picker${
-                      isRuntimeModelMenuOpen ? " is-open" : ""
-                    }`}
-                  >
-                    <button
-                      className="runtime-model-trigger"
-                      type="button"
-                      onClick={() =>
-                        setIsRuntimeModelMenuOpen((prev) => !prev)
-                      }
-                      disabled={runtimeProviders.length === 0}
-                      aria-expanded={isRuntimeModelMenuOpen}
-                      aria-haspopup="listbox"
-                    >
-                      <span className="runtime-model-label">
-                        {selectedRuntimeProvider
-                          ? selectedRuntimeProvider.modelName
-                          : runtimeProviders.length > 0
-                            ? "\u8bf7\u9009\u62e9\u6a21\u578b"
-                            : "\u8bf7\u5148\u5728\u8bbe\u7f6e\u4e2d\u914d\u7f6e API \u53c2\u6570"}
-                      </span>
-                      <ChevronDown aria-hidden="true" />
-                    </button>
-                    {isRuntimeModelMenuOpen ? (
-                      <div className="runtime-model-menu" role="listbox">
-                        {runtimeProviders.map((provider) => (
-                          <button
-                            key={provider.id}
-                            type="button"
-                            className={`runtime-model-option${
-                              provider.id === runtimeProviderId
-                                ? " is-selected"
-                                : ""
-                            }`}
-                            onClick={() => {
-                              setRuntimeProviderId(provider.id);
-                              setIsRuntimeModelMenuOpen(false);
-                            }}
-                          >
-                            {provider.modelName}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                </label>
-
-                <label className="settings-field">
-                  <span>{"\u7ffb\u8bd1\u65b9\u5411"}</span>
-                  <div className="direction-switch" role="radiogroup" aria-label={"\u7ffb\u8bd1\u65b9\u5411"}>
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={runtimeDirection === "zhToEn"}
-                      className={`direction-option${
-                        runtimeDirection === "zhToEn" ? " is-active" : ""
-                      }`}
-                      onClick={() => setRuntimeDirection("zhToEn")}
-                    >
-                      {"\u4e2d\u8bd1\u82f1"}
-                    </button>
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={runtimeDirection === "enToZh"}
-                      className={`direction-option${
-                        runtimeDirection === "enToZh" ? " is-active" : ""
-                      }`}
-                      onClick={() => setRuntimeDirection("enToZh")}
-                    >
-                      {"\u82f1\u8bd1\u4e2d"}
-                    </button>
-                  </div>
-                </label>
-
-                <label className="settings-field">
-                  <span>{"\u7ffb\u8bd1\u9875\u7801\uff08\u53ef\u9009\uff09"}</span>
-                  <input
-                    className="runtime-pages-input"
-                    type="text"
-                    value={runtimePages}
-                    placeholder={"\u4f8b\u5982: 1-3,7,10-12"}
-                    onChange={(event) => setRuntimePages(event.target.value)}
-                  />
-                </label>
-
-                <label className="settings-field">
-                  <span>{"\u8f93\u51fa\u76ee\u5f55"}</span>
-                  <div className="runtime-output-row">
-                    <button
-                      className={`outline-btn runtime-output-picker-btn${
-                        runtimeOutputDirValue === "" ? " is-empty" : ""
-                      }`}
-                      type="button"
-                      title={
-                        runtimeOutputDirValue === ""
-                          ? defaultOutputDir
-                          : runtimeOutputDirValue
-                      }
-                      onClick={() => {
-                        void pickRuntimeOutputDir();
-                      }}
-                    >
-                      {runtimeOutputDirValue === ""
-                        ? defaultOutputDir || "\u9009\u62e9\u8f93\u51fa\u6587\u4ef6\u5939"
-                        : runtimeOutputDirValue}
-                    </button>
-                    <button
-                      className="outline-btn runtime-output-clear-btn"
-                      type="button"
-                      aria-label="\u6e05\u7a7a\u8f93\u51fa\u76ee\u5f55"
-                      title="\u6e05\u7a7a\u8f93\u51fa\u76ee\u5f55"
-                      disabled={runtimeOutputDirValue === ""}
-                      onClick={() => setRuntimeOutputDir("")}
-                    >
-                      <X aria-hidden="true" />
-                    </button>
-                  </div>
-                </label>
-
-                <label className="settings-field">
-                  <span>水印模式</span>
-                  <div className="direction-switch direction-switch--three">
-                    <button
-                      type="button"
-                      className={`direction-option${
-                        runtimeWatermarkMode === "watermarked" ? " is-active" : ""
-                      }`}
-                      onClick={() => setRuntimeWatermarkMode("watermarked")}
-                    >
-                      仅水印                    </button>
-                    <button
-                      type="button"
-                      className={`direction-option${
-                        runtimeWatermarkMode === "no_watermark" ? " is-active" : ""
-                      }`}
-                      onClick={() => setRuntimeWatermarkMode("no_watermark")}
-                    >
-                      无水印                    </button>
-                    <button
-                      type="button"
-                      className={`direction-option${
-                        runtimeWatermarkMode === "both" ? " is-active" : ""
-                      }`}
-                      onClick={() => setRuntimeWatermarkMode("both")}
-                    >
-                      双版本                    </button>
-                  </div>
-                </label>
-
-                <label className="settings-field">
-                  <span>输出模式</span>
-                  <div className="direction-switch">
-                    <button
-                      type="button"
-                      className={`direction-option${
-                        runtimeOutputMode === "dualOnly" ? " is-active" : ""
-                      }`}
-                      onClick={() => setRuntimeOutputMode("dualOnly")}
-                    >
-                      双语对照
-                    </button>
-                    <button
-                      type="button"
-                      className={`direction-option${
-                        runtimeOutputMode === "monoOnly" ? " is-active" : ""
-                      }`}
-                      onClick={() => setRuntimeOutputMode("monoOnly")}
-                    >
-                      仅译文                    </button>
-                  </div>
-                </label>
-
-                <div className="runtime-toolbar">
-                  <button
-                    className="outline-btn"
-                    type="button"
-                    onClick={() => {
-                      void pickRuntimeFiles();
-                    }}
-                  >
-                    选择 PDF 文件
-                  </button>
-                  <button
-                    className="danger-text-btn"
-                    type="button"
-                    disabled={runtimeFiles.length === 0}
-                    onClick={() => setRuntimeFiles([])}
-                  >
-                    清空文件
-                  </button>
-                  <button
-                    className="primary-btn"
-                    type="button"
-                    disabled={isRuntimeSubmitting || !canSubmitRuntimeTask}
-                    onClick={() => {
-                      void submitRuntimeTasks();
-                    }}
-                  >
-                    {isRuntimeSubmitting
-                      ? "\u521b\u5efa\u4e2d..."
-                      : "\u52a0\u5165\u5f85\u529e"}
-                  </button>
-                </div>
-
-                <div className="runtime-files">
-                  {runtimeFiles.map((file, index) => (
-                    <p className="runtime-file-item" key={`${file}-${index}`} title={file}>
-                      {firstFileName([file])}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
         {envState === "installing" || envState === "missing" || envState === "error" ? (
           <div
             className="env-overlay"
@@ -1267,7 +640,7 @@ function App() {
               {envState === "installing" ? (
                 <>
                   <p className="env-line">{envMessage}</p>
-                  <p className="env-line">{"\u8bf7\u4fdd\u6301\u5e94\u7528\u5f00\u542f\u3002"}</p>
+                  <p className="env-line">请保持应用开启。</p>
                   <div className="env-progress-list" aria-live="polite">
                     {envProgressItems.map((item, index) => (
                       <p className="env-status-text" key={`${item}-${index}`}>
@@ -1294,9 +667,7 @@ function App() {
                     }}
                     disabled={isEnvBusy}
                   >
-                    {envState === "error"
-                      ? "\u91cd\u8bd5\u5b89\u88c5"
-                      : "\u5b89\u88c5\u73af\u5883"}
+                    {envState === "error" ? "重试安装" : "安装环境"}
                   </button>
                 </div>
               ) : null}
@@ -1362,7 +733,8 @@ function App() {
                           setDraft((prev) => ({ ...prev, direction: "zhToEn" }))
                         }
                       >
-                        中文到英文                      </button>
+                        中文到英文
+                      </button>
                       <button
                         type="button"
                         role="radio"
@@ -1374,7 +746,8 @@ function App() {
                           setDraft((prev) => ({ ...prev, direction: "enToZh" }))
                         }
                       >
-                        英文到中文                      </button>
+                        英文到中文
+                      </button>
                     </div>
                   </label>
                   <label className="settings-field">
@@ -1414,7 +787,8 @@ function App() {
                           }))
                         }
                       >
-                        仅水印                      </button>
+                        仅水印
+                      </button>
                       <button
                         type="button"
                         className={`direction-option${
@@ -1427,7 +801,8 @@ function App() {
                           }))
                         }
                       >
-                        无水印                      </button>
+                        无水印
+                      </button>
                       <button
                         type="button"
                         className={`direction-option${
@@ -1440,7 +815,8 @@ function App() {
                           }))
                         }
                       >
-                        双版本                      </button>
+                        双版本
+                      </button>
                     </div>
                   </label>
                   <label className="settings-field">
@@ -1466,7 +842,8 @@ function App() {
                           setDraft((prev) => ({ ...prev, outputMode: "monoOnly" }))
                         }
                       >
-                        仅译文                      </button>
+                        仅译文
+                      </button>
                     </div>
                   </label>
                 </div>
@@ -1481,18 +858,22 @@ function App() {
                     onClick={() =>
                       setDraft((prev) => ({
                         ...prev,
-                        providers: [...prev.providers, { ...BLANK_PROVIDER }],
+                        providers: [
+                          ...prev.providers,
+                          { ...BLANK_PROVIDER, _key: crypto.randomUUID() },
+                        ],
                       }))
                     }
                   >
                     <Plus aria-hidden="true" />
-                    新增一组                  </button>
+                    新增一组
+                  </button>
                 </div>
 
                 {draft.providers.length === 0 ? null : (
                   <div className="provider-list">
                     {draft.providers.map((provider, index) => (
-                      <article className="provider-card" key={`provider-${index}`}>
+                      <article className="provider-card" key={provider._key ?? `provider-${index}`}>
                         <div className="settings-grid provider-grid">
                           <label className="settings-field">
                             <span>Model Name</span>
@@ -1584,7 +965,6 @@ function App() {
                   </div>
                 ) : null}
               </section>
-
             </div>
           </aside>
         </div>
