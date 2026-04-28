@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "BabelFish",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "identifier": "com.babelfish",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:1422",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
@@ -13,6 +13,7 @@
     "windows": [
       {
         "title": "BabelFish",
+        "decorations": false,
         "width": 800,
         "height": 600
       }

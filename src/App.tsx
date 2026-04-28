@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import ConfigPanel from "./components/ConfigPanel";
 import HistoryPanel from "./components/HistoryPanel";
 import QueuePanel from "./components/QueuePanel";
+import WindowFrame from "./components/WindowFrame";
 import {
   type AppSettings, type AppSettingsDraft, type EnvCheckResult,
   type EnvState, type TaskStatus, type Direction,
@@ -583,7 +584,11 @@ function App() {
 
   return (
     <main className="app-shell">
-      <section className="workspace" aria-label="workspace">
+      <section
+        className={`workspace${tauriAvailable ? " has-window-frame" : ""}`}
+        aria-label="workspace"
+      >
+        {tauriAvailable ? <WindowFrame /> : null}
         <div className="workspace-body">
           <div className="left-column">
             <QueuePanel

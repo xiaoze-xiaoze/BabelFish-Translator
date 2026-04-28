@@ -34,6 +34,8 @@
   --info: #2563eb;
   --info-bg: #eff6ff;
   --info-border: #bfdbfe;
+  --window-drag-height: 38px;
+  --window-control-width: 46px;
 }
 
 * {
@@ -82,6 +84,71 @@ textarea {
   background-size: auto, 28px 28px, 100% 100%;
   display: flex;
   flex-direction: column;
+}
+
+.workspace.has-window-frame {
+  padding-top: var(--window-drag-height);
+}
+
+.window-drag-zone {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: calc(var(--window-control-width) * 3);
+  height: var(--window-drag-height);
+  z-index: 30;
+  background: transparent;
+}
+
+.window-controls {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 31;
+  height: var(--window-drag-height);
+  display: flex;
+  align-items: stretch;
+  background: transparent;
+}
+
+.window-control-btn {
+  width: var(--window-control-width);
+  height: var(--window-drag-height);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  cursor: default;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.window-control-btn:hover {
+  background: rgba(15, 23, 42, 0.08);
+  color: var(--text);
+}
+
+.window-control-btn--close:hover {
+  background: #e81123;
+  color: #ffffff;
+}
+
+.window-control-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.window-control-icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.8;
+}
+
+.window-control-icon--square {
+  width: 13px;
+  height: 13px;
 }
 
 /* ── Workspace Body (left-right split) ── */
